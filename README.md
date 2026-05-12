@@ -1,1 +1,131 @@
-# Lustre-quota-diff
+# lustre-quota-diff
+
+Script d'analyse des différences de quotas projet Lustre entre deux exports `glb-prj`.
+
+Utile notamment après un `lctl set_param osd-ldiskfs.*.quota_slave.force_reint=1` pour
+comprendre ce qui a changé dans les compteurs de quota et identifier les projets impactés.
+
+---
+
+## Contexte
+
+Sur un filesystem Lustre, les quotas projet sont gérés par le **QMT** (Quota Master Target),
+qui agrège les remontées de chaque **quota slave** (un par OST/MDT).
+
+Ces compteurs peuvent se désynchroniser avec la réalité disque après :
+- un crash ou redémarrage d'OSS
+- un failover
+- des suppressions de fichiers effectuées pendant qu'un OSS était indisponible
+
+La commande `force_reint=1` force chaque OSD à recompter l'usage réel depuis le disque
+et à le remonter au QMT :
+
+```bash
+clush -bw @mds,@oss 'lctl set_param osd-ldiskfs.*.quota_slave.force_reint=1'
+```
+
+Pour capturer l'état avant/après et analyser les différences, ce script compare deux exports
+du QMT au format `glb-prj` (global project quota).
+
+---
+
+## Générer les fichiers d'export
+
+**Avant** le `force_reint` :
+```bash
+lctl get_param qmt.*.dt-0x0.glb-prj > glb-prj-before.txt
+```
+
+**Après** le `force_reint` (attendre quelques secondes que la réintégration soit terminée) :
+```bash
+lctl get_param qmt.*.dt-0x0.glb-prj > glb-prj-after.txt
+```
+
+---
+
+## Utilisation
+
+```bash
+chmod +x lustre-quota-diff.sh
+./lustre-quota-diff.sh glb-prj-before.txt glb-prj-after.txt
+```
+
+---
+
+## Exemple de sortie
+
+```
+STATUT                 ID       HARD(Mo)  AVANT(Mo)  APRES(Mo)  %AVANT  %APRES    DELTA(Mo)
+-------------------------------------------------------------------------------------
+NOUVEAU_DEPASSEMENT    15012        1024        456       1171   44.5%  114.4%        +716 <<<
+RESOLU                 334          2048       2048       1196  100.0%   58.4%        -852
+TOUJOURS_DEPASSE       6721         1024       2040       2040  199.2%  199.2%          +0 <<<
+sous-estime            15053        2048        680       1353   33.2%   66.1%        +674
+sur-estime             1109        10240       9277       6687   90.6%   65.3%       -2591 <<<
+```
+
+---
+
+## Explication des colonnes
+
+| Colonne | Description |
+|---------|-------------|
+| `STATUT` | Résultat de la comparaison (voir tableau ci-dessous) |
+| `ID` | Identifiant du projet Lustre |
+| `HARD(Mo)` | Limite maximale configurée pour ce projet |
+| `AVANT(Mo)` | Espace comptabilisé par le QMT **avant** la réintégration |
+| `APRES(Mo)` | Espace comptabilisé par le QMT **après** la réintégration |
+| `%AVANT` | Taux d'utilisation avant |
+| `%APRES` | Taux d'utilisation après |
+| `DELTA(Mo)` | Correction appliquée (positif = le QMT sous-estimait, négatif = il surestimait) |
+
+Le marqueur **`<<<`** signale les projets dont l'usage dépasse 90% du hard limit après réintégration.
+
+---
+
+## Explication des statuts
+
+| Statut | Signification | Action recommandée |
+|--------|---------------|-------------------|
+| `RESOLU` | Le projet semblait dépasser son quota mais ce n'était qu'un artefact de comptage. Le compteur a été corrigé à la baisse. | ✅ Rien à faire, les alertes vont disparaître. |
+| `NOUVEAU_DEPASSEMENT` | Le projet ne semblait pas en dépassement mais l'était vraiment. Le QMT sous-estimait l'usage réel. | 🔴 À traiter : contacter l'utilisateur ou augmenter la limite. |
+| `TOUJOURS_DEPASSE` | Le projet dépasse son quota avant ET après. Le `force_reint` n'a rien changé : c'est un vrai dépassement connu. Un `delta=0` confirme que les compteurs étaient déjà corrects. | 🔴 Dépassement réel à traiter. |
+| `sous-estime` | Le QMT sous-estimait l'usage (delta positif) mais sans dépasser le hard limit. | ⚠️ À surveiller si le projet est proche de sa limite. |
+| `sur-estime` | Le QMT surestimait l'usage (delta négatif). Des fichiers avaient été supprimés sans que les slaves remontent la libération. | ✅ Normal après un crash/failover, espace libéré récupéré. |
+
+---
+
+## Filtrer les résultats
+
+Par défaut le script affiche les projets avec un delta > 5% du hard limit, ou impliqués dans un dépassement.
+
+Pour n'afficher que les dépassements actifs :
+```bash
+./lustre-quota-diff.sh before.txt after.txt | grep -E "DEPASSE|NOUVEAU"
+```
+
+Pour identifier un projet spécifique :
+```bash
+./lustre-quota-diff.sh before.txt after.txt | grep "^TOUJOURS_DEPASSE"
+```
+
+Pour trouver à quel utilisateur/chemin correspond un ID de projet :
+```bash
+lfs project -l /mnt/lustre | grep "^<id>"
+lfs quota -p <id> /mnt/lustre
+```
+
+---
+
+## Prérequis
+
+- `bash` >= 4
+- `awk` (compatible BSD awk et gawk)
+- `diff`
+- Accès aux fichiers d'export `glb-prj` du QMT
+
+---
+
+## Auteur
+
+Généré dans le cadre d'une investigation sur la désynchronisation des quotas Lustre après `force_reint`.
