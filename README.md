@@ -1,8 +1,16 @@
-# lustre-quota-diff
+# lustre-project-quota-diff
 
-Script d'analyse des différences de quotas projet Lustre entre deux exports `glb-prj`.
+Scripts d'analyse des différences de quotas projet Lustre entre deux exports `glb-prj`.
 
-Utile notamment après un `lctl set_param osd-ldiskfs.*.quota_slave.force_reint=1` pour
+Disponibles en trois unités selon vos préférences d'affichage :
+
+| Script | Unité |
+|--------|-------|
+| `lustre-project-quota-diff_ko.sh` | Kilo-octets (Ko) |
+| `lustre-project-quota-diff_mo.sh` | Méga-octets (Mo) |
+| `lustre-project-quota-diff_go.sh` | Giga-octets (Go) |
+
+Utiles notamment après un `lctl set_param osd-ldiskfs.*.quota_slave.force_reint=1` pour
 comprendre ce qui a changé dans les compteurs de quota et identifier les projets impactés.
 
 ---
@@ -24,7 +32,7 @@ et à le remonter au QMT :
 clush -bw @mds,@oss 'lctl set_param osd-ldiskfs.*.quota_slave.force_reint=1'
 ```
 
-Pour capturer l'état avant/après et analyser les différences, ce script compare deux exports
+Pour capturer l'état avant/après et analyser les différences, ces scripts comparent deux exports
 du QMT au format `glb-prj` (global project quota).
 
 ---
@@ -46,13 +54,20 @@ lctl get_param qmt.*.dt-0x0.glb-prj > glb-prj-after.txt
 ## Utilisation
 
 ```bash
-chmod +x lustre-quota-diff.sh
-./lustre-quota-diff.sh glb-prj-before.txt glb-prj-after.txt
+# Rendre les scripts exécutables (une seule fois)
+chmod +x lustre-project-quota-diff_ko.sh
+chmod +x lustre-project-quota-diff_mo.sh
+chmod +x lustre-project-quota-diff_go.sh
+
+# Lancer avec l'unité souhaitée
+./lustre-project-quota-diff_ko.sh glb-prj-before.txt glb-prj-after.txt
+./lustre-project-quota-diff_mo.sh glb-prj-before.txt glb-prj-after.txt
+./lustre-project-quota-diff_go.sh glb-prj-before.txt glb-prj-after.txt
 ```
 
 ---
 
-## Exemple de sortie
+## Exemple de sortie (version Mo)
 
 ```
 STATUT                 ID       HARD(Mo)  AVANT(Mo)  APRES(Mo)  %AVANT  %APRES    DELTA(Mo)
@@ -73,12 +88,12 @@ sur-estime             74            250        230        198   92.0%   79.2%  
 |---------|-------------|
 | `STATUT` | Résultat de la comparaison (voir tableau ci-dessous) |
 | `ID` | Identifiant du projet Lustre |
-| `HARD(Mo)` | Limite maximale configurée pour ce projet |
-| `AVANT(Mo)` | Espace comptabilisé par le QMT **avant** la réintégration |
-| `APRES(Mo)` | Espace comptabilisé par le QMT **après** la réintégration |
+| `HARD(Ko/Mo/Go)` | Limite maximale configurée pour ce projet |
+| `AVANT(Ko/Mo/Go)` | Espace comptabilisé par le QMT **avant** la réintégration |
+| `APRES(Ko/Mo/Go)` | Espace comptabilisé par le QMT **après** la réintégration |
 | `%AVANT` | Taux d'utilisation avant |
 | `%APRES` | Taux d'utilisation après |
-| `DELTA(Mo)` | Correction appliquée (positif = le QMT sous-estimait, négatif = il surestimait) |
+| `DELTA(Ko/Mo/Go)` | Correction appliquée (positif = le QMT sous-estimait, négatif = il surestimait) |
 
 Le marqueur **`<<<`** signale les projets dont l'usage dépasse 90% du hard limit après réintégration.
 
@@ -98,16 +113,16 @@ Le marqueur **`<<<`** signale les projets dont l'usage dépasse 90% du hard limi
 
 ## Filtrer les résultats
 
-Par défaut le script affiche les projets avec un delta > 5% du hard limit, ou impliqués dans un dépassement.
+Par défaut les scripts affichent les projets avec un delta > 5% du hard limit, ou impliqués dans un dépassement.
 
 Pour n'afficher que les dépassements actifs :
 ```bash
-./lustre-quota-diff.sh before.txt after.txt | grep -E "DEPASSE|NOUVEAU"
+./lustre-project-quota-diff_mo.sh before.txt after.txt | grep -E "DEPASSE|NOUVEAU"
 ```
 
 Pour identifier un projet spécifique :
 ```bash
-./lustre-quota-diff.sh before.txt after.txt | grep "^TOUJOURS_DEPASSE"
+./lustre-project-quota-diff_mo.sh before.txt after.txt | grep "^TOUJOURS_DEPASSE"
 ```
 
 Pour trouver à quel utilisateur/chemin correspond un ID de projet :
