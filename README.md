@@ -39,6 +39,8 @@ du QMT au format `glb-prj` (global project quota).
 
 ## Générer les fichiers d'export
 
+> ⚠️ Ces commandes sont à exécuter **depuis le serveur QMT** (généralement le MDS primaire).
+
 **Avant** le `force_reint` :
 ```bash
 lctl get_param qmt.*.dt-0x0.glb-prj > glb-prj-before.txt
